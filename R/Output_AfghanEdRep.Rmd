@@ -1,0 +1,325 @@
+---
+title: "Output_AfghanEdRep"
+author: "Hans Elliott"
+date: "1/26/2022"
+output: 
+  pdf_document:
+      includes:
+        in_header: header.tex
+classoption: landscape
+
+---
+\pagenumbering{gobble}
+
+# "Bringing Education to Afghan Girls: A Randomized Controlled Trial of Village-Based Schools"
+## By Dana Burde and Leigh L. Linden. 2013.
+#### Replication by Hans Elliott
+```{r setup, include=FALSE}
+#\pagenumbering{gobble} suppresses page numbers
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+```
+
+```{r rm_title_page, echo=FALSE}
+#suppresses yaml header
+head <- cat('
+\\AtBeginDocument{\\let\\maketitle\\relax}
+', file = "header.tex")
+```
+
+```{r, results='hide'}
+#Load data
+library(pacman)
+p_load(foreign, dplyr, tidyverse, here, sandwich)
+here()
+ed_df <- here('Data','afghanistan_anonymized_data.dta') %>% read.dta()
+    #here(FolderContainingData, filename)
+```
+
+# Outliers
+```{r, results='hide'}
+# View data
+  
+# Create nonoutlier variable-----------------------------------------------------------------------
+ed_df <- ed_df %>% mutate(
+  nonoutlier = ifelse(  (f07_num_ppl_hh_cnt > 20 & f07_observed == 1)|
+                        (f07_jeribs_cnt > 10 & f07_observed == 1)    |
+                        (f07_num_sheep_cnt > 50 & f07_observed == 1) |
+                        (s08_num_ppl_hh_cnt > 20 & s08_observed == 1)|
+                        (s08_jeribs_cnt > 10 & s08_observed == 1)    |
+                        (s08_num_sheep_cnt > 50 & s08_observed == 1),
+                          0, 1)
+)
+  # if any of these conditions are true, nonoutlier==0. Otherwise, nonoutlier==1.
+
+table(ed_df$nonoutlier)  # there are 76 outliers
+```
+1) According to this code, outliers include children who belong to households where the number of people is greater than 20, where the quantity of jeribs (land) owned is greater than 10, or where the number of sheep owned is greater than 50 (whether this is in Fall 2007 or Spring 2008).  
+
+3) 76 children are considered outliers.
+
+
+# Table 4 Replication  
+### Column 1
+```{r, results='hide'}
+## Table 4: Treatment Effects By Gender------------------------------------------
+p_load(stargazer) #for creating regression results tables
+p_load(sandwich) #for robust SEs
+
+### Column 1: Enrollment w/out controls ------
+# Run regression for girls
+reg1Girls <- ed_df %>% 
+  filter(f07_girl_cnt ==1 & nonoutlier ==1 & f07_test_observed ==1) %>%
+lm(f07_formal_school ~ treatment + chagcharan, data = .)
+  se_reg1G  <- sqrt(diag(vcovHC(reg1Girls )))      #calculate robust standard errors
+
+# Run regression for boys
+reg1Boys <- ed_df %>% 
+  filter(f07_girl_cnt ==0 & nonoutlier ==1 & f07_test_observed ==1) %>%
+lm(f07_formal_school ~ treatment + chagcharan, data = .)
+  se_reg1B  <- sqrt(diag(vcovHC(reg1Boys )))
+
+# Table 4.1:
+stargazer(reg1Girls,reg1Boys, se=list(se_reg1G,se_reg1B),
+          type='text')
+
+
+
+# run regressions but include outliers:
+reg2G <- ed_df %>% filter(f07_girl_cnt ==1 & f07_test_observed ==1) %>%
+  lm(f07_formal_school ~ treatment + chagcharan, data = .)
+reg2B <- ed_df %>% filter(f07_girl_cnt ==0 & f07_test_observed ==1) %>%
+  lm(f07_formal_school ~ treatment + chagcharan, data = .)
+
+stargazer(reg2G,reg2B,type='text',title = "WITH OUTLIERS") #results with outliers
+    #not overly sensitive to the inclusion of outliers
+```
+5) The results are very similar to the authors, although my robust standard errors are smaller, probably since mine were not clustered at the village-group level. There are slight differences in the coefficients, but the differences are minimal and my coefficients tell the same story as the authors’ coefficients.  
+
+6) Including the outliers did affect the coefficients. Specifically, including the outliers reduced the estimated treatment effect for girls by just over 1 percentage point and increased the estimated treatment effect for boys by around 2 percentage points. I would not say that the coefficients are very different when the outliers are included, so the regressions are not overly sensitive to the inclusions of outliers.
+
+
+### Column 2
+
+```{r, results='hide'}
+### Create new df with necessary variables to speed things up:
+reg_df <- ed_df %>% select(
+  
+  #Controls (included in all regressions with controls)
+  "f07_heads_child_cnt", "f07_girl_cnt", "f07_age_cnt", "f07_duration_village_cnt",
+  "f07_farsi_cnt","f07_tajik_cnt","f07_farmer_cnt", "f07_age_head_cnt",
+  "f07_yrs_ed_head_cnt", "f07_num_ppl_hh_cnt","f07_jeribs_cnt",
+  "f07_num_sheep_cnt", "f07_nearest_scl",
+  
+  #Outcomes (only use one at a time. remove the other one from model)
+  "f07_formal_school","f07_both_norma_total",
+  
+  #Treatment & 'chagcharan' (included in all regressions)
+  "treatment", "chagcharan",
+  
+  #filtering (do not use in regression model)
+  "nonoutlier", "f07_test_observed"
+  )
+###
+
+# Column 2: Enrollment w/ controls ------
+
+#Regression for Girls
+c2Girls <- reg_df %>% 
+  filter(f07_girl_cnt ==1 & nonoutlier ==1 & f07_test_observed ==1) %>%
+  lm(f07_formal_school ~ . -nonoutlier -f07_test_observed -f07_both_norma_total -f07_girl_cnt, data=.)
+                            #regress on all vars in reg_df except these
+se_c2G  <- sqrt(diag(vcovHC(c2Girls )))      #calculate robust standard errors
+
+#Regression for Boys
+c2Boys <- reg_df %>% 
+  filter(f07_girl_cnt ==0 & nonoutlier ==1 & f07_test_observed ==1) %>%
+  lm(f07_formal_school ~ . -nonoutlier -f07_test_observed -f07_both_norma_total -f07_girl_cnt, data=.)
+                            #regress on all vars in reg_df except these
+se_c2B  <- sqrt(diag(vcovHC(c2Boys )))      #calculate robust standard errors
+
+#Table 4.2:
+stargazer(reg1Girls,reg1Boys,c2Girls,c2Boys,
+          se=list(se_reg1G,se_reg1B,se_c2G,se_c2B),
+          type='text',
+          dep.var.labels = c("Formal Enrollment"),
+          column.labels = c("Girls","Boys","Girls","Boys"))
+```
+
+5) Several controls do have a statistically significant relationship with the outcome variable, i.e. formal enrollment. One such control is age, which is statistically significant from zero for both boys and girls. The coefficient on age for girls is 0.035 and for boys is 0.064, indicating that an increase of age by 1 year is correlated with an increase in enrollment of 3.5% for girls and 6.4% for boys. Overall, this suggests that enrollment increases with age. These effects are statistically significant at the 1% level.
+
+```{r, results='hide'}
+# Column 3: Fall 2007 test w/out controls -----
+
+# Regression for Girls
+c3Girls <- reg_df %>% 
+  filter(f07_girl_cnt ==1 & nonoutlier ==1 & f07_test_observed ==1) %>%
+  lm(f07_both_norma_total ~ treatment + chagcharan, data=.)
+se_c3G  <- sqrt(diag(vcovHC(c3Girls )))      #calculate robust standard errors
+
+# Regression for Boys
+c3Boys <- reg_df %>% 
+  filter(f07_girl_cnt ==0 & nonoutlier ==1 & f07_test_observed ==1) %>%
+  lm(f07_both_norma_total ~ treatment + chagcharan, data=.)
+se_c3B  <- sqrt(diag(vcovHC(c3Boys )))      #calculate robust standard errors
+```
+
+
+```{r, results='hide'}
+# Column 4: Fall 2007 test w/ controls -----
+
+#Regression for Girls
+c4Girls <- reg_df %>% 
+  filter(f07_girl_cnt ==1 & nonoutlier ==1 & f07_test_observed ==1) %>%
+  lm(f07_both_norma_total ~ . -nonoutlier -f07_test_observed -f07_formal_school -f07_girl_cnt, data=.)
+                              #regress on all vars in reg_df except these
+se_c4G  <- sqrt(diag(vcovHC(c4Girls)))      #calculate robust standard errors
+
+#Regression for Boys
+c4Boys <- reg_df %>% 
+  filter(f07_girl_cnt ==0 & nonoutlier ==1 & f07_test_observed ==1) %>%
+  lm(f07_both_norma_total ~ . -nonoutlier -f07_test_observed -f07_formal_school -f07_girl_cnt, data=.)
+                              #regress on all vars in reg_df except these 
+se_c4B  <- sqrt(diag(vcovHC(c4Boys )))      #calculate robust standard errors
+#----
+```
+
+# Final Tables: 4a & 4b
+```{r, results='hide'}
+# Useful function for resizing stargazer output:
+
+resizebox.stargazer = function(..., tab.width = "!", tab.height = "!"
+                               ){
+  #Activate str_which() function:
+  require(stringr) 
+
+  #Extract the code returned from stargazer()
+  res = capture.output(
+    stargazer::stargazer(...)
+    )
+
+  #Render the arguments:
+  tab.width = tab.width
+  tab.height = tab.height
+
+  #Attach "}" between \end{tabular} and \end{table}
+  res = 
+    prepend(res, "}", before = length(res))
+
+  #Input \resizebox before \begin{tabular}
+  res = 
+    c(res[1:str_which(res, "^\\\\begin\\{tabular\\}.*")-1],
+      paste0("\\resizebox{",tab.width,"}{",tab.height,"}{%"),
+      res[str_which(res, "^\\\\begin\\{tabular\\}.*"):length(res)]
+      )
+
+  #Produce the whole strings
+  cat(res, sep = "\n")
+}
+```
+
+\setcounter{table}{3}
+```{r, results='asis',fig.align='center'}
+# Final Table 4a:
+resizebox.stargazer(reg1Girls,reg1Boys,c2Girls,c2Boys,c3Girls,c3Boys,c4Girls,c4Boys,
+          se=list(se_reg1G,se_reg1B,se_c2G,se_c2B,se_c3G,se_c3B,se_c4G,se_c4B),
+          type="latex", keep.stat = c('rsq','n'),
+          title = "A - Treatment Effects by Gender",
+          dep.var.caption = "Dependent Variables:",
+          dep.var.labels = c("| Formal Enrollment |","| Fall 2007 Test Score |"),
+          column.labels = c("Girls (no controls)","Boys (no controls)","Girls","Boys",
+                            "Girls (no controls)","Boys (no controls)","Girls","Boys"),
+          order = c(13,1:12,14:15),
+          covariate.labels = c("Treatment","Household head's child", "Age", "Years family in village",
+                               "Farsi", "Tajik", "Farmers", "Age of household head",
+                               "Household head years of ed",
+                               "Number of people in household", "Jeribs of land", "Number of sheep",
+                               "Distance to nearest formal school", "Chagcharan", "Constant"),
+          style = 'qje',
+          header = FALSE,
+          no.space= FALSE,
+          column.sep.width = "3pt",
+          font.size = "small",
+          tab.width = "0.9\\textwidth",
+          tab.height = "0.5\\textwidth"
+          )
+
+```
+```{r}
+# Table 4b Code:
+# 2008 test results
+
+# Column 6: Spring 2009 test w/out controls
+# Regression for Girls
+c6Girls <- ed_df %>% 
+  filter(s08_girls_cnt ==1 & nonoutlier ==1 & s08_test_observed ==1) %>%
+  lm(s08_both_norma_total ~ treatment + chagcharan, data=.)
+se_c6G  <- sqrt(diag(vcovHC(c6Girls)))      #calculate robust standard errors
+
+# Regression for Boys
+c6Boys <- ed_df %>% 
+  filter(s08_girls_cnt ==0 & nonoutlier ==1 & s08_test_observed ==1) %>%
+  lm(s08_both_norma_total ~ treatment + chagcharan, data=.)
+se_c6B  <- sqrt(diag(vcovHC(c6Boys )))      #calculate robust standard errors
+
+# Column 7: Spring 2009 test w/ controls
+# Regression for Girls
+c7Girls <- ed_df %>% 
+  filter(s08_girls_cnt ==1 & nonoutlier ==1 & s08_test_observed ==1) %>%
+  lm(s08_both_norma_total ~ treatment + #Controls:
+            s08_heads_child_cnt + s08_age_cnt + s08_duration_village_cnt + s08_farsi_cnt +
+            s08_tajik_cnt + s08_farmer_cnt + s08_age_head_cnt + s08_yrs_ed_head_cnt + 
+            s08_num_ppl_hh_cnt + s08_jeribs_cnt + s08_num_sheep_cnt + s08_nearest_scl +
+            chagcharan,
+       data=.)
+
+se_c7G  <- sqrt(diag(vcovHC(c7Girls)))      #calculate robust standard errors
+
+# Regression for Boys
+c7Boys <- ed_df %>% 
+  filter(s08_girls_cnt ==0 & nonoutlier ==1 & s08_test_observed ==1) %>%
+  lm(s08_both_norma_total ~ treatment + #Controls:
+       s08_heads_child_cnt + s08_age_cnt + s08_duration_village_cnt + s08_farsi_cnt +
+       s08_tajik_cnt + s08_farmer_cnt + s08_age_head_cnt + s08_yrs_ed_head_cnt + 
+       s08_num_ppl_hh_cnt + s08_jeribs_cnt + s08_num_sheep_cnt + s08_nearest_scl +
+       chagcharan,
+     data=.)
+
+se_c7B  <- sqrt(diag(vcovHC(c7Boys)))      #calculate robust standard errors
+```
+
+\setcounter{table}{3}
+```{r results='asis'}
+# Table 4b:
+tab4b <- resizebox.stargazer(c6Girls,c6Boys,c7Girls,c7Boys,
+          se=list(se_c6G,se_c6B,se_c7G,se_c7B),
+          type="latex", keep.stat = c('rsq','n'),
+          title = "B - Treatment Effects by Gender",
+          dep.var.caption = "Spring 2008 Test Score",
+          dep.var.labels = "",
+          column.labels = c("Girls (no controls)","Boys (no controls)","Girls","Boys"),
+          covariate.labels = c("Treatment","Household head's child", "Age", "Years family in village",
+                               "Farsi", "Tajik", "Farmers", "Age of household head", 
+                               "Household head years of ed",
+                               "Number of people in household", "Jeribs of land", "Number of sheep",
+                               "Distance to nearest formal school", "Chagcharan", "Constant"),
+          style = 'qje',
+          header = FALSE,
+          no.space= FALSE,
+          column.sep.width = "3pt",
+          font.size = "small",
+          tab.width = "0.5\\textwidth",
+          tab.height = "0.5\\textwidth"
+          )
+```
+
+
+# Table 2
+```{r}
+#Column 1:
+
+
+
+```
+
